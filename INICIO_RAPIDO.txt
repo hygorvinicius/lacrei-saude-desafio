@@ -1,0 +1,22 @@
+DESAFIO LACREI SAUDE — INICIO RAPIDO (LINUX MINT)
+==================================================
+1. Extraia o ZIP numa pasta de sua escolha.
+2. Abra um terminal DENTRO da pasta lacrei-backend-entrega.
+3. Confira Docker: docker --version ; docker compose version
+4. Execute:
+   cp .env.example .env
+   docker compose up --build -d
+5. Teste:
+   docker compose ps
+   curl http://127.0.0.1:8000/health/
+6. Crie o administrador:
+   docker compose exec web python manage.py createsuperuser
+7. Execute os testes:
+   docker compose exec web python manage.py test
+8. Abra README.md e siga as rotas, GitHub e deploy.
+
+Se der erro, envie o TEXTO COMPLETO do terminal.
+Nunca envie senhas reais, tokens, DATABASE_URL ou .env.
+
+IMPORTANTE: Este ZIP é uma base de implementação e deve ser validado
+no seu computador. Deploy real depende de configurar GitHub/Render.
