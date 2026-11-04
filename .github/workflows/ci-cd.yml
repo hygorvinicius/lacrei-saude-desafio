@@ -1,10 +1,13 @@
-name: CI e CD
+name: CI e CD - AWS Lightsail
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+
+permissions:
+  contents: read
 
 jobs:
   qualidade:
@@ -33,7 +36,7 @@ jobs:
           python-version: "3.12"
       - name: Instalar Poetry
         run: python -m pip install "poetry>=2.0,<3.0"
-      - name: Instalar dependências
+      - name: Instalar dependencias
         run: poetry install --no-root --no-interaction
       - name: Lint
         run: poetry run ruff check .
@@ -41,7 +44,7 @@ jobs:
         run: poetry run python manage.py makemigrations --check --dry-run
       - name: Testes automatizados
         run: poetry run python manage.py test
-      - name: Verificar configurações Django
+      - name: Verificar configuracoes Django
         run: poetry run python manage.py check
 
   build:
@@ -57,23 +60,79 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: staging
+    concurrency:
+      group: staging
+      cancel-in-progress: false
     steps:
-      - name: Publicar staging via Render Deploy Hook
+      - name: Configurar chave SSH e host verificado
         env:
-          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.LIGHTSAIL_KNOWN_HOSTS }}
         run: |
-          test -n "$DEPLOY_HOOK" || { echo 'Cadastre RENDER_DEPLOY_HOOK no ambiente staging'; exit 1; }
-          curl --fail --show-error --silent --retry 3 -X POST "$DEPLOY_HOOK"
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+      - name: Publicar develop no Lightsail e verificar saude
+        env:
+          SSH_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          ssh -i "$HOME/.ssh/id_ed25519" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 "ubuntu@${SSH_HOST}" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/lacrei-saude-desafio
+          test -f .env.aws && test -f compose.aws.yml
+          git diff --quiet && git diff --cached --quiet
+          git fetch origin develop
+          if git show-ref --verify --quiet refs/heads/develop; then
+            git switch develop
+            git pull --ff-only origin develop
+          else
+            git switch -c develop --track origin/develop
+          fi
+          sudo -n docker compose --env-file .env.aws -f compose.aws.yml up -d --build
+          sudo -n docker compose --env-file .env.aws -f compose.aws.yml ps
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --max-time 8 -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ | grep -q '"status":"ok"'
+          REMOTE
 
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
     steps:
-      - name: Publicar produção via Render Deploy Hook
+      - name: Configurar chave SSH e host verificado
         env:
-          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.LIGHTSAIL_KNOWN_HOSTS }}
         run: |
-          test -n "$DEPLOY_HOOK" || { echo 'Cadastre RENDER_DEPLOY_HOOK no ambiente production'; exit 1; }
-          curl --fail --show-error --silent --retry 3 -X POST "$DEPLOY_HOOK"
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+      - name: Publicar main no Lightsail e verificar saude
+        env:
+          SSH_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          ssh -i "$HOME/.ssh/id_ed25519" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 "ubuntu@${SSH_HOST}" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/lacrei-saude-desafio
+          test -f .env.aws && test -f compose.aws.yml
+          git diff --quiet && git diff --cached --quiet
+          git fetch origin main
+          git switch main
+          git pull --ff-only origin main
+          sudo -n docker compose --env-file .env.aws -f compose.aws.yml up -d --build
+          sudo -n docker compose --env-file .env.aws -f compose.aws.yml ps
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --max-time 8 -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ | grep -q '"status":"ok"'
+          REMOTE
