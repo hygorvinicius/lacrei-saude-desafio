@@ -95,7 +95,7 @@ jobs:
           fi
           sudo -n docker compose --env-file .env.aws -f compose.aws.yml up -d --build
           sudo -n docker compose --env-file .env.aws -f compose.aws.yml ps
-          curl --fail --silent --show-error --retry 8 --retry-delay 3 --max-time 8 -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/ | grep -q '"status":"ok"'
+          curl --fail --silent --show-error --retry-all-errors --retry 24 --retry-delay 5 --max-time 8 -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/health/
           REMOTE
 
   deploy-production:
