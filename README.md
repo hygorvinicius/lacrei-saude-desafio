@@ -1,45 +1,111 @@
-# Lacrei Saúde — Desafio Back-end
+# Lacrei Saúde — Desafio Técnico Back-end
 
-API REST de gerenciamento de **profissionais de saúde** e **consultas médicas**, criada com
-Python, Django REST Framework, PostgreSQL, Docker, Poetry e GitHub Actions.
+API REST para cadastro de profissionais de saúde e gerenciamento de consultas, desenvolvida como desafio técnico de voluntariado da Lacrei Saúde.
+
+**Repositório:** https://github.com/hygorvinicius/lacrei-saude-desafio
+
+## Ambientes publicados
+
+| Ambiente | Branch | Hospedagem | Documentação | Saúde |
+|---|---|---|---|---|
+| **Produção** | `main` | AWS Lightsail (`Ubuntu-1`) | [Swagger — produção](https://3-133-248-90.sslip.io/api/docs/) | [Health — produção](https://3-133-248-90.sslip.io/health/) |
+| **Staging** | `develop` | AWS Lightsail (`Ubuntu-2`) | [Swagger — staging](https://18-227-202-242.sslip.io/api/docs/) | [Health — staging](https://18-227-202-242.sslip.io/health/) |
+
+Os dois ambientes executam **Django + PostgreSQL em contêineres separados**, têm bases de dados independentes e recebem tráfego HTTPS por meio do **Caddy**. Endereços baseados em `sslip.io` são adequados para demonstração; os IPs devem permanecer associados às instâncias (idealmente como IPs estáticos) enquanto esses links forem usados.
+
+**Situação verificada em 5 de novembro de 2026:** pipelines de produção e staging concluíram com sucesso; o commit de produção `6520934` e o commit de staging `97735b4` foram confirmados nos respectivos servidores. O endpoint `/health/` respondeu `200 OK` nos testes apresentados. Os endereços e commits representam o estado dessa validação, não garantia de disponibilidade futura.
 
 ## 1. Funcionalidades
 
-- CRUD completo de profissionais e consultas, com respostas JSON e paginação.
-- Consulta de registros por ID e filtro `GET /api/consultas/?profissional_id=1`.
-- Dados: profissionais (`nome_social`, `profissao`, `endereco`, `contato`);
-  consultas (`data` ISO 8601 com fuso, `profissional` FK).
-- Login via token, validação de dados, rejeição de HTML, SQL parametrizado pelo Django ORM.
-- CORS restritivo, requisições limitadas por usuário, logs de acesso e erros.
-- PostgreSQL, migrations, Swagger, testes com `APITestCase`.
-- Pipeline GitHub Actions com lint, migration check, testes, build e gatilhos de deploy.
+- CRUD de profissionais de saúde (`nome_social`, `profissao`, `endereco`, `contato`).
+- CRUD de consultas (`data` com fuso horário e `profissional` como chave estrangeira).
+- Listagem paginada, busca por ID e filtro de consultas pelo ID do profissional.
+- Autenticação por token (`Authorization: Token ...`).
+- Validação de entradas, proteção contra exclusão indevida de profissional vinculado a consultas, uso do ORM do Django e configuração de CORS.
+- Logs de acesso/erro, limitação de requisições e documentação OpenAPI/Swagger, conforme a implementação e a configuração do projeto.
+- Testes automatizados com `APITestCase` e pipeline GitHub Actions.
 
-## 2. Pré-requisitos
+### Rotas principais
 
-- Docker + plugin `docker compose` instalados, ou Python 3.12 e Poetry 2.x.
-- `git` para o repositório remoto.
+| Método | Endpoint | Uso |
+|---|---|---|
+| GET | `/health/` | Verificação de saúde HTTP da API |
+| POST | `/api/auth/token/` | Obter token com usuário e senha |
+| GET, POST | `/api/profissionais/` | Listar ou criar profissionais |
+| GET, PUT, PATCH, DELETE | `/api/profissionais/{id}/` | Consultar, editar ou excluir profissional |
+| GET, POST | `/api/consultas/` | Listar ou criar consultas |
+| GET, PUT, PATCH, DELETE | `/api/consultas/{id}/` | Consultar, editar ou excluir consulta |
+| GET | `/api/consultas/?profissional_id={id}` | Filtrar consultas por profissional |
+| GET | `/api/schema/` | Esquema OpenAPI |
+| GET | `/api/docs/` | Interface Swagger |
 
-### Execução com Docker (recomendado)
+Respostas usuais: `200` para leitura/edição, `201` para criação, `204` para exclusão, `400` para validação inválida, `401` para acesso sem credenciais, `404` para recurso inexistente, `409` para exclusão proibida por vínculo e `429` para requisições acima do limite configurado. O retorno exato depende da operação.
 
-```bash
-cp .env.example .env
-docker compose up --build -d
-docker compose ps
-curl http://127.0.0.1:8000/health/
+**Regra de negócio:** um profissional com consultas associadas não pode ser excluído enquanto os vínculos existirem; a proteção evita perda acidental de histórico.
+
+## 2. Tecnologias e arquitetura
+
+- Python 3.12, Django, Django REST Framework e Poetry.
+- PostgreSQL 16 e Django ORM.
+- Docker Engine e Docker Compose.
+- Git e GitHub Actions (lint, checagem de migrações, testes, build e deploy).
+- AWS Lightsail com Ubuntu, Caddy e HTTPS.
+- Swagger/OpenAPI para exploração da API.
+
+```text
+                      Cliente HTTP / Swagger
+                               |
+                             HTTPS
+                               |
+                       Caddy (80 / 443)
+                               |
+                    127.0.0.1:8000 (host)
+                               |
+                     Django REST Framework
+                   serializers / views / auth
+                               |
+                           Django ORM
+                               |
+                       PostgreSQL (Docker)
+
+  AWS Lightsail — produção                AWS Lightsail — staging
+  main / banco próprio                     develop / banco próprio
+  Secrets e volumes próprios               Secrets e volumes próprios
 ```
 
-Resultado esperado: `{"status":"ok"}`.
+**Decisões técnicas:** o ORM utiliza consultas parametrizadas, os serializers concentram validações e os ViewSets padronizam operações CRUD. O PostgreSQL não precisa ser exposto na internet; o Django acessa o banco pela rede Docker. CORS limita o uso pelo navegador, mas **não substitui autenticação/autorização**. O token simples é adequado ao escopo do exercício, mas não tem expiração automática e exige controles adicionais em operação prolongada.
 
-As migrations são aplicadas automaticamente na inicialização do container web.
-As tabelas ficam armazenadas no volume `postgres_data`.
+## 3. Executar localmente com Docker
 
-Crie um usuário (senha individual e forte):
+### Pré-requisitos
+
+Git, Docker Engine e o plugin `docker compose` instalados. Os comandos abaixo são executados na raiz do repositório.
+
+```bash
+git clone https://github.com/hygorvinicius/lacrei-saude-desafio.git
+cd lacrei-saude-desafio
+cp .env.example .env
+# Configure uma senha de banco e uma DJANGO_SECRET_KEY próprias para desenvolvimento.
+docker compose up --build -d
+docker compose ps
+curl -i http://127.0.0.1:8000/health/
+```
+
+Resposta de aplicação esperada:
+
+```json
+{"status":"ok"}
+```
+
+O entrypoint do serviço web aplica as migrações antes de iniciar a API, conforme configuração do projeto. Não use credenciais de produção no desenvolvimento. Não publique `.env` ou `.env.aws` no Git.
+
+Criar um administrador local, quando necessário:
 
 ```bash
 docker compose exec web python manage.py createsuperuser
 ```
 
-### Login e utilização
+### Autenticação e exemplos de requisições
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/auth/token/ \
@@ -47,209 +113,190 @@ curl -X POST http://127.0.0.1:8000/api/auth/token/ \
   -d '{"username":"SEU_USUARIO","password":"SUA_SENHA"}'
 ```
 
-Copie o token retornado apenas para o seu terminal e **nunca commite em arquivos**.
+Use o token retornado somente em ambiente seguro. Evite colá-lo em prints, tickets, commits ou logs.
 
 ```bash
-export TOKEN="COLE_O_TOKEN_AQUI"
+export TOKEN="SEU_TOKEN_AQUI"
 
 curl -X POST http://127.0.0.1:8000/api/profissionais/ \
-  -H "Authorization: Token $TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: Token $TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '{"nome_social":"Alex Oliveira","profissao":"Psicologia","endereco":"Rua Um, 10","contato":"alex@example.com"}'
 
 curl -X POST http://127.0.0.1:8000/api/consultas/ \
-  -H "Authorization: Token $TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: Token $TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '{"data":"2026-11-10T14:00:00-03:00","profissional":1}'
 
 curl -H "Authorization: Token $TOKEN" \
   'http://127.0.0.1:8000/api/consultas/?profissional_id=1'
 ```
 
-Se você criar outros registros antes, substitua `1` pelo ID real do profissional.
+Substitua `1` pelo ID efetivamente retornado ao cadastrar um profissional. Use dados fictícios nos exemplos e nos testes.
 
-## 3. Endpoints
-
-| Método | Rota | Descrição |
-|--|--|--|
-| GET | `/health/` | Verifica app e banco (público) |
-| POST | `/api/auth/token/` | Obtém token com usuário e senha |
-| GET/POST | `/api/profissionais/` | Lista/cria profissional |
-| GET/PUT/PATCH/DELETE | `/api/profissionais/{id}/` | Detalhe/atualiza/exclui profissional |
-| GET/POST | `/api/consultas/` | Lista/cria consulta |
-| GET/PUT/PATCH/DELETE | `/api/consultas/{id}/` | Detalhe/atualiza/exclui consulta |
-| GET | `/api/consultas/?profissional_id={id}` | Filtra consultas por profissional |
-| GET | `/api/schema/` | OpenAPI |
-| GET | `/api/docs/` | Swagger UI |
-
-Status HTTP padrão: `200` leitura/edição, `201` criação, `204` exclusão,
-`400` validação, `401` sem autenticação, `404` recurso não encontrado,
-`409` tentativa de excluir profissional com consultas e `429` limite de requisições.
-
-**Regra de integridade:** profissional com consultas não pode ser excluído até
-que essas consultas sejam removidas. Essa é uma decisão documentada de proteção de dados.
-
-## 4. Executar testes
+## 4. Executar testes e verificações
 
 ```bash
 docker compose exec web python manage.py test
-# ou, fora do Docker, depois de instalar dependências com Poetry:
-# poetry run python manage.py test
-# poetry run ruff check .
+docker compose exec web python manage.py check
 ```
 
-Os testes usam `APITestCase`, incluindo autenticação, CRUD, erro 400/404,
-filtragem, tentativa de injeção SQL e integridade referencial.
-
-## 5. Instalação sem Docker (alternativa para desenvolvimento)
+O pipeline também executa, com Poetry e PostgreSQL no runner:
 
 ```bash
-python3.12 -m pip install --user poetry
-poetry install --no-root
-# crie .env com DEBUG=1 e DATABASE_URL=sqlite:///db.sqlite3 só para rodar local
-poetry run python manage.py migrate
-poetry run python manage.py createsuperuser
-poetry run python manage.py runserver
+poetry run ruff check .
+poetry run python manage.py makemigrations --check --dry-run
+poetry run python manage.py test
+poetry run python manage.py check
 ```
 
-A entrega/CI utiliza PostgreSQL; SQLite aqui é apenas alternativa de desenvolvimento.
+Nos testes registrados durante o desenvolvimento, **15 testes passaram**. Eles contemplaram autenticação, operações de profissionais e consultas, filtragem, validação de dados e cenários de erro, conforme as suítes do repositório. As execuções posteriores de GitHub Actions para as duas branches também foram aprovadas.
 
-## 6. Arquitetura e decisões
+## 5. Implantação na AWS Lightsail
 
-```text
-Cliente/API Consumer
-       |
-       | HTTPS + Authorization: Token ...
-       v
-Django REST Framework -> Serializers -> ModelViewSet -> Django ORM
-       |                                     |
-  validação, auth,                           v
-  CORS, throttling                      PostgreSQL
-       |
-   stdout logs
-```
+Cada ambiente dispõe de sua própria instância Ubuntu, PostgreSQL e arquivo de configuração privado. No servidor, o projeto fica em `~/lacrei-saude-desafio` e utiliza:
 
-- Django 5.2 LTS para estabilidade e ampla compatibilidade.
-- ViewSets permitem rotas CRUD padronizadas e reduzem código duplicado.
-- Token simples atende ao requisito; para produção de longa duração,
-  recomendar token com expiração/rotação (Knox ou JWT) e HTTPS obrigatório.
-- `PROTECT` evita apagar histórico de consultas por exclusão acidental.
-- ORM parametriza queries e mitiga injeção de SQL; entrada também é validada.
-- CORS restringe origens do navegador **mas não substitui autenticação**.
-- Logs omitem body, querystring e token; configure retenção com cuidado.
-- DRF pagination: 20 resultados por página por padrão.
-- Swagger adicionado como bônus de documentação, em `/api/docs/`.
+- `.env.aws`: configurações e credenciais exclusivas do servidor (**não versionar**).
+- `compose.aws.yml`: composição de serviços usada no Lightsail.
+- `Dockerfile` e `docker/entrypoint.sh`: build e inicialização do Django.
+- Caddy, com proxy reverso para `127.0.0.1:8000` e TLS automático.
 
-## 7. CI/CD e deploy — staging e produção
-
-O GitHub Actions (`.github/workflows/ci-cd.yml`) realiza:
-
-1. `ruff check .` (lint)
-2. `makemigrations --check --dry-run` (sincronismo do schema)
-3. `manage.py test` (PostgreSQL real em container de serviço)
-4. `docker build` (build do serviço)
-5. Deploy via **Render Deploy Hook**, separado por ambiente e branch.
-
-### Como criar os 2 ambientes na Render
-
-1. Publique o repo no GitHub, usando `develop` e `main`.
-2. Render > New > Postgres: crie um banco distinto para `staging` e outro para
-   `production` (confirme custos/planos na tela antes de aprovar).
-3. Render > New > Web Service > Connect repository > escolha **Docker**.
-   Serviço `lacrei-staging`: branch `develop`, Auto Deploy **Off**.
-   Serviço `lacrei-production`: branch `main`, Auto Deploy **Off**.
-4. Em cada serviço, Configure Environment (não salve segredos no código):
-   - `DEBUG=0`
-   - `DJANGO_SECRET_KEY`: chave exclusiva e aleatória
-   - `DATABASE_URL`: URL **do banco correto** de cada ambiente
-   - `ALLOWED_HOSTS`: hostname atribuído àquele serviço
-   - `CORS_ALLOWED_ORIGINS`: somente frontend(s) confiáveis, se houver
-   - `CSRF_TRUSTED_ORIGINS`: origem HTTPS do admin se necessário
-   - `DATABASE_SSL_REQUIRE`: de acordo com exigência do provedor do banco
-5. Configure **Health Check Path** para `/health/`.
-6. No Render > Service > Settings, copie o **Deploy Hook URL** do staging
-   e separadamente do production.
-7. GitHub > Settings > Environments: crie ambientes `staging` e `production`.
-   Em cada um adicione o segredo de MESMO NOME `RENDER_DEPLOY_HOOK`, com
-   a URL de deploy correspondente. Se disponível, exija aprovação manual
-   para a produção. Nunca coloque hooks no README nem nos arquivos do repo.
-8. Push para `develop` dispara staging; push para `main` dispara produção.
-   **Confira logs do Render e GET /health/ após o deploy.**
-
-A etapa do GitHub confirma o *disparo* do deploy, não que o serviço já ficou
-saudável. Esse check final é obrigatório para a validação da entrega.
-
-### Gerar uma chave forte
+Exemplo de gerenciamento **dentro de cada servidor**, já configurado:
 
 ```bash
-python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
+cd ~/lacrei-saude-desafio
+sudo docker compose --env-file .env.aws -f compose.aws.yml ps
+sudo docker compose --env-file .env.aws -f compose.aws.yml logs web --tail=50
 ```
 
-### Comandos Git para publicar
+O serviço `web` publica apenas `127.0.0.1:8000:8000` no host. A porta `5432` do PostgreSQL não deve ser publicada no firewall do Lightsail. As portas `80/443` atendem o HTTPS, e a porta `22` deve ter acesso administrativo restrito sempre que viável.
+
+**Pendência de reprodutibilidade:** o arquivo `compose.aws.yml` foi montado diretamente nos servidores e apareceu como **não rastreado** no staging (`git status --short`). Para que terceiros possam reconstruir o ambiente AWS do zero apenas com o repositório, é necessário adicionar uma versão **sem segredos** desse arquivo (ou um template) ao Git, juntamente com as instruções de provisionamento do Caddy. Isso ainda não foi validado como instalação do zero em uma terceira máquina.
+
+### Variáveis de ambiente principais
+
+| Variável | Finalidade |
+|---|---|
+| `DEBUG` | `0` na AWS |
+| `DJANGO_SECRET_KEY` | Chave aleatória exclusiva por ambiente |
+| `DATABASE_URL` | Conexão com PostgreSQL do ambiente correspondente |
+| `DB_PASSWORD` | Senha do banco usada pelo Compose de servidor |
+| `ALLOWED_HOSTS` | Hosts autorizados do Django |
+| `CSRF_TRUSTED_ORIGINS` | Origem HTTPS permitida para CSRF |
+| `CORS_ALLOWED_ORIGINS` | Origens confiáveis, quando existir frontend |
+| `DATABASE_SSL_REQUIRE` | Conforme topologia/configuração da conexão ao banco |
+
+Não reutilize senhas de produção em staging nem coloque valores reais dessas variáveis em issues, README ou GitHub.
+
+## 6. CI/CD — GitHub Actions
+
+Workflow: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Visão das [execuções do GitHub Actions](https://github.com/hygorvinicius/lacrei-saude-desafio/actions).
+
+1. **Qualidade:** lint (`ruff`), checagem de migrações, testes automatizados em PostgreSQL e `manage.py check`.
+2. **Build:** construção da imagem Docker.
+3. **Deploy staging:** push em `develop` → GitHub Actions → SSH para `Ubuntu-2` → atualização do código e `docker compose up -d --build` → verificação de `/health/`.
+4. **Deploy produção:** push em `main` → mesmo processo na instância `Ubuntu-1`, usando o ambiente `production`.
+
+O GitHub utiliza os ambientes `staging` e `production`, cada um com seus próprios segredos:
+
+- `LIGHTSAIL_HOST`
+- `LIGHTSAIL_SSH_KEY`
+- `LIGHTSAIL_KNOWN_HOSTS`
+
+O par de chaves SSH é separado por ambiente, e a identidade SSH do host deve ser verificada antes de registrar `KNOWN_HOSTS`. As chaves privadas ficam nos segredos do GitHub, não no repositório.
+
+**Incidente resolvido:** o primeiro deploy de staging falhou com `curl: (56) Recv failure: Connection reset by peer` porque o teste chegou durante a inicialização do Django. A verificação foi ajustada para tolerar erros transitórios e repetir as tentativas (`--retry-all-errors`, intervalo entre tentativas). A execução seguinte concluiu com sucesso.
+
+**Validações observadas:** produção — commit `6520934`; staging — commit `97735b4` (execução #5, 5/11/2026). Um job verde comprova a execução da pipeline, e o teste externo de `/health/` acrescenta a confirmação de que o serviço respondeu; nenhum desses testes isolados equivale a uma auditoria completa de segurança ou desempenho.
+
+## 7. Rollback operacional
+
+O rollback de **código** foi testado no `Ubuntu-2` em 5/11/2026:
+
+1. A branch `develop` estava no commit `97735b4`.
+2. O servidor foi colocado temporariamente no commit anterior `6520934` (`git switch --detach 6520934`).
+3. A imagem Django foi reconstruída com `sudo docker compose --env-file .env.aws -f compose.aws.yml up -d --build`.
+4. O `/health/` voltou a responder `{"status":"ok"}` (após uma nova tentativa enquanto o serviço iniciava).
+5. A branch `develop` e o commit `97735b4` foram restaurados; contêineres saudáveis e `/health/` respondendo novamente.
+
+### Procedimento manual de emergência (ambiente já preparado)
+
+Faça primeiro snapshot/backup do banco, identifique um commit estável compatível com as migrações e comunique a intervenção. No servidor afetado:
 
 ```bash
-git init
-git add .
-git commit -m "feat: implementa API Lacrei Saúde"
-git branch -M main
-git remote add origin URL_DO_SEU_REPOSITORIO
-git push -u origin main
-git checkout -b develop
-git push -u origin develop
+cd ~/lacrei-saude-desafio
+git status --short
+git log -5 --oneline
+# Escolha o commit estável após confirmar compatibilidade:
+git switch --detach COMMIT_ESTAVEL
+sudo docker compose --env-file .env.aws -f compose.aws.yml up -d --build
+curl --fail --show-error --retry-all-errors --retry 24 --retry-delay 5 \
+  --max-time 8 -H 'X-Forwarded-Proto: https' \
+  http://127.0.0.1:8000/health/
 ```
 
-**Importante:** gere `poetry.lock` com `poetry lock` (depois de instalar Poetry)
-e inclua o arquivo no commit antes da entrega para garantir versões reproduzíveis.
-Este pacote contém `pyproject.toml`, mas não um `poetry.lock` gerado: não foi
-possível fazer a resolução online das dependências neste ambiente de preparo.
+Para restaurar a branch após o incidente (exemplo **apenas staging**):
 
-## 8. Rollback
+```bash
+git switch develop
+git pull --ff-only origin develop
+sudo docker compose --env-file .env.aws -f compose.aws.yml up -d --build
+```
 
-Caso o novo deploy quebre em staging/produção:
+**Limites:** o teste executado demonstrou retorno de *commit* e reconstrução de contêiner; os dois commits usados diferiam principalmente no workflow CI/CD. Não demonstrou migração reversa de banco, recuperação de indisponibilidade complexa nem rollback automático. Um push posterior pode sobrescrever o rollback manual. Nunca use `docker compose down -v` para esse procedimento: ele pode remover volumes com dados.
 
-1. Identificar o commit estável anterior no GitHub e o deploy na Render.
-2. No Render > Deploys, selecionar **Rollback**/**Redeploy** do deploy estável
-   (conforme controles disponíveis no serviço/plano).
-3. Alternativa: reverter commit usando `git revert` e publicar na branch
-   correspondente; o GitHub Actions disparará novo deploy.
-4. Acompanhar `/health/`, logs da aplicação e endpoints autenticados.
-5. **Banco:** migrations deste desafio são aditivas; reversão de schema é
-   procedimento separado. Faça snapshot/backup antes de migrations destrutivas.
-   Não execute `migrate api zero` em dados reais.
+## 8. Backups e recuperação
 
-O rollback operacional depende das ferramentas e permissões disponíveis na
-conta de hospedagem. Valide efetivamente um rollback em staging.
+Foi criado no servidor de staging um dump SQL do PostgreSQL, salvo em `~/lacrei-staging-backup.sql`, com cerca de 28 KB. Confirmou-se que o arquivo existe e não está vazio, **mas não foi executado teste de restauração**.
 
-## 9. Erros encontrados, melhorias e limitações
+Exemplo de geração de um novo backup no servidor:
 
-- Sem pagamento real: proposta Asaas fica fora do escopo obrigatório.
-- Não há dados reais de pacientes armazenados — usar apenas dados sintéticos
-  na avaliação e nos logs.
-- Token simples não expira por padrão; rotação, autorização por papéis,
-  auditoria detalhada, backups e testes de carga são melhorias para produção.
-- As configurações finais de domínio, secrets, URL de staging/produção,
-  monitoramento e política de backup dependem da conta de deploy.
-- Os testes e deploy precisam ser executados e validados antes do envio.
+```bash
+umask 077
+cd ~/lacrei-saude-desafio
+sudo docker compose --env-file .env.aws -f compose.aws.yml exec -T db \
+  pg_dump -U lacrei -d lacrei > "$HOME/lacrei-staging-backup.sql"
+test -s "$HOME/lacrei-staging-backup.sql" && echo 'Arquivo de backup nao vazio'
+```
+
+Próximos controles recomendados: testar restauração em banco descartável, definir retenção e periodicidade, copiar backups criptografados para fora da instância (por exemplo, um armazenamento privado com acesso mínimo) e documentar responsáveis e tempos de recuperação. Não incluir dumps no Git.
+
+## 9. Problemas encontrados e melhorias propostas
+
+| Problema/decisão | Tratamento ou pendência |
+|---|---|
+| Autenticação SSH recusada inicialmente | Chave pública adicionada a `authorized_keys`; conexões SSH autenticadas foram validadas |
+| Pipeline de produção inicialmente dependente do Render | Substituído por deploy SSH no AWS Lightsail |
+| Staging retornava `curl (56)` imediatamente após deploy | Adicionadas tentativas no Health Check; pipeline passou |
+| Necessidade de manter dados entre reconstruções | Volume persistente do PostgreSQL, sem `down -v` |
+| Compose AWS criado diretamente no servidor | **Pendente** versionar template seguro e reproduzível |
+| Arquivo de backup de staging | Criado; **pendente** testar restauração e cópia externa |
+| Tokens do DRF | Modelo simples sem expiração nativa; planejar expiração/rotação, escopos e revogação |
+| Monitoramento e proteção de produção | Revisar alertas, logs, firewall, backups, rate limits e políticas de acesso |
+| Integração Asaas | **Proposta não implementada** (item opcional) |
+
+Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonstrações. Antes de um uso prolongado em produção, revisar permissões, configurações do Django (`check --deploy`), política de dados e condições de manutenção dos servidores.
 
 ## 10. Checklist de entrega
 
-- [ ] `docker compose up --build -d` sem erros
-- [ ] `/health/` retorna 200
-- [ ] API CRUD funcionando e filtro por ID validado
-- [ ] `manage.py test` verde (testes em PostgreSQL)
-- [ ] `ruff check .` verde
-- [ ] Workflow GitHub Actions verde
-- [ ] URL pública staging funcional
-- [ ] URL pública produção funcional
-- [ ] Rollback testado em staging
-- [ ] README atualizado com links reais e decisões técnicas
-- [ ] `poetry.lock` versionado, `.env` fora do Git
+- [x] CRUD e filtro de consultas implementados e testados no desenvolvimento.
+- [x] Testes automatizados e verificações de qualidade aprovados nos pipelines observados.
+- [x] Docker + PostgreSQL executados nos dois servidores AWS.
+- [x] Deploy da branch `main` na AWS produção validado.
+- [x] Deploy da branch `develop` na AWS staging validado.
+- [x] `/health/` e Swagger acessíveis por HTTPS em ambos os ambientes durante a validação.
+- [x] Rollback **de código** testado no staging e versão atual restaurada.
+- [x] README atualizado com arquitetura, URLs e limitações conhecidas.
+- [ ] Versionar uma configuração AWS reutilizável, sem arquivos secretos, e validar instalação nova.
+- [ ] Testar restauração do backup em banco descartável e estabelecer cópia externa.
+- [ ] Fazer revisão final de segurança e execução de `manage.py check --deploy` com configurações da AWS.
+- [ ] Confirmar que segredos, arquivos `.env*` e dumps não foram publicados.
+- [ ] Confirmar critérios de aceitação e enviar link do repositório à equipe da ONG.
 
-## 11. Extra opcional: integração Asaas
+## 11. Extra opcional — proposta de integração Asaas
 
-Desenho proposto, **não implementado**:
+**Não implementado.** Uma integração futura poderá relacionar uma cobrança à consulta, solicitar cobrança na API do Asaas e processar webhooks com verificação de autenticidade e idempotência. Credenciais ficariam exclusivamente no backend, e não seriam armazenados dados completos de cartão. Staging utilizaria ambiente de testes isolado de produção.
 
-1. Um `Pagamento` referencia uma consulta e o identificador externo no Asaas.
-2. Backend cria cobrança no Asaas via HTTP no servidor; credenciais apenas em secrets.
-3. Webhook autenticado/validado atualiza o status de pagamento de modo
-   **idempotente** (evento duplicado não gera duplicação).
-4. Não armazenar cartão; conciliar divergências e documentar estado da cobrança.
-5. Separar sandbox do Asaas em staging e conta real em produção.
+---
+
+**Nota de escopo:** este README registra o trabalho executado e as evidências compartilhadas durante o desafio técnico. Não representa auditoria independente do código, da infraestrutura ou de conformidade com a LGPD.
