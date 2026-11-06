@@ -1,40 +1,37 @@
-# Revisão solicitada pela Lacrei Saúde — 06/11/2026
+# Revisão do desafio Lacrei Saúde — evidências confirmadas em 06/11/2026
 
-## Alterações preparadas
+Este guia registra **resultados confirmados diretamente nos pipelines** para os seis ajustes solicitados pela equipe. Não inclui credenciais, tokens ou dados reais de pacientes.
 
-1. `README.md` alinhado com o `compose.aws.yml` já versionado e o teste de restauração de produção realizado, sem declarar execução nova que não ocorreu.
-2. Instruções de Docker, Poetry+PostgreSQL, variáveis `.env.aws` e exemplo de Caddy incluídos no README.
-3. `aplicar_json.py` insere `JSONRenderer` no Django REST Framework **sem sobrescrever** outras configurações. `api/tests/test_json_responses.py` valida JSON, erros e a interface Swagger.
-4. `.github/workflows/ci-cd.yml` faz deploy do `github.sha` aprovado, aborta quando a branch mudou e registra `DEPLOYED_SHA`, verificando saúde local e pública.
-5. O workflow escreve no GitHub Actions Step Summary SHA e URL do run. O README explica como obter links diretos de cada pipeline e testes da **nova revisão**.
-6. O README explica limites do rollback de código versus migrações/backup do banco.
+## 1. README e compose AWS
+O `compose.aws.yml` está versionado e define os serviços Django/Gunicorn e PostgreSQL sem expor a porta 5432. Os arquivos `.env` e `.env.aws` não devem ser versionados. O README foi alinhado à configuração atual.
 
-## Importante: estado verificado e pendências
+## 2. Execução e AWS
+O README documenta inicialização com Docker Compose, alternativa local com Poetry e PostgreSQL, exemplo de `.env.aws` com valores fictícios, Caddy e verificação de saúde pública. A preparação automática de uma nova instância não foi exercitada nesta revisão.
 
-- Esta revisão foi construída a partir de um ZIP de código fornecido anteriormente e de cópias mais recentes de README/workflow presentes na conversa. **Não há acesso ao HEAD remoto do GitHub nesta sessão**. Compare os arquivos com seu repositório antes de copiar; não sobrescreva mudanças posteriores.
-- Testes Django e execução real de CI/deploy não foram executados nesta sessão porque os serviços/dependências e credenciais do projeto não estão disponíveis. Há validações estáticas dos arquivos, mas não equivalem a pipeline verde.
-- Após aplicar e fazer commit, as URLs dos runs precisam ser recolhidas do GitHub Actions. Não invente SHA, run ID, nem evidência de aprovação.
-- Não mexe em S3, IAM, Asaas, dados reais, credenciais nem migrações de banco.
+## 3. JSON e Swagger
+`REST_FRAMEWORK.DEFAULT_RENDERER_CLASSES` contém apenas `JSONRenderer` para a API; a rota `/api/docs/` continua disponível em HTML. O arquivo `api/tests/test_json_responses.py` contém oito testes adicionais para JSON, erros, autenticação, saúde e Swagger. Os 23 testes do projeto passaram na execução #17.
 
-## Aplicação segura no seu clone local (Linux Mint)
+## 4. Deploy rastreável
+O workflow `.github/workflows/ci-cd.yml` exige checkout exato de `GITHUB_SHA` no servidor, compara com o HEAD remoto da branch, registra `DEPLOYED_SHA` e verifica `/health/` localmente e por HTTPS, nos dois ambientes. Os logs dos jobs de deploy confirmaram esses SHAs na revisão.
 
-**Execute na pasta do seu clone atual; não envie esta pasta inteira por cima do repositório.**
+## 5. Evidências diretas
 
-```bash
-cd ~/caminho/para/lacrei-saude-desafio
-# garanta que não existam alterações locais não commitadas antes de proceder
- git status --short
- git switch -c revisao-lacrei-novembro
-# Extraia o ZIP numa pasta separada, por exemplo ~/Downloads/lacrei-revisao-06-11-2026
-# Compare README e workflow com as versões atuais, depois copie apenas os arquivos desejados.
-# Na raiz do clone, copie aplicar_json.py e execute: python3 aplicar_json.py
-python3 -m compileall -q config api
-poetry run python manage.py test
-poetry run ruff check .
-poetry run python manage.py makemigrations --check --dry-run
- git diff --check
-```
+| Ambiente | Commit implantado | Pipeline | Job de qualidade |
+|---|---|---|---|
+| Staging | `d12e6725e285117cfbf6e14a160f03260d209368` | [Run #15](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511) | [Testes e lint](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511/job/128013818318) |
+| Produção | `cf5ad971ef92aa0754450bc22e53a009384e5e01` | [Run #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256) | [Testes e lint](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256/job/128015409584) |
 
-Se os testes passarem, `git add` nos arquivos relevantes, faça commit e envie branch para PR. Ao integrar em `develop`, observe o pipeline staging. Depois de validar, integre em `main` e observe pipeline produção. **Publicação em produção não é feita automaticamente por este ZIP.**
+[PR #1](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/1) e [PR #2](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/2) estão integrados.
 
-Ao responder ao e-mail, anexe links dos runs de `develop` e `main` e indique o SHA do commit revisado; os SHAs serão diferentes se as branches receberem commits de merge distintos, e isso é normal.
+- [Staging — /health/](https://18-227-202-242.sslip.io/health/)
+- [Produção — /health/](https://3-133-248-90.sslip.io/health/)
+- [Staging — Swagger](https://18-227-202-242.sslip.io/api/docs/)
+- [Produção — Swagger](https://3-133-248-90.sslip.io/api/docs/)
+
+## 6. Funcionamento e rollback
+Houve teste de rollback de **código** no staging em 05/11/2026, com retorno ao commit anterior e posterior restauração da versão em uso; o endpoint de saúde respondeu. O README documenta os passos e seus limites.
+
+**O rollback de código não desfaz migrações nem restaura automaticamente dados PostgreSQL.** Alterações de esquema incompatíveis exigem planejamento, backup, testes e eventual recuperação separada. O dump de produção foi restaurado em um contêiner PostgreSQL isolado, com 13 tabelas; isso não comprova restauração completa de todo o sistema em caso de desastre.
+
+## Limites desta verificação
+Aprovação dos pipelines e resposta de `/health/` não equivalem a auditoria independente de segurança, LGPD, observabilidade, disponibilidade contínua ou testes de desempenho. As evidências acima se referem às execuções de 06/11/2026. O extra Asaas permanece opcional e não implementado.

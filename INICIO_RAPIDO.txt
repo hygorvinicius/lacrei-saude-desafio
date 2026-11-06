@@ -1,22 +1,36 @@
-DESAFIO LACREI SAUDE — INICIO RAPIDO (LINUX MINT)
-==================================================
-1. Extraia o ZIP numa pasta de sua escolha.
-2. Abra um terminal DENTRO da pasta lacrei-backend-entrega.
-3. Confira Docker: docker --version ; docker compose version
-4. Execute:
+LACREI SAÚDE — INÍCIO RÁPIDO (DESENVOLVIMENTO LOCAL)
+=================================================
+
+Pré-requisitos: Git, Docker Engine e Docker Compose.
+
+1. Clone o repositório:
+   git clone https://github.com/hygorvinicius/lacrei-saude-desafio.git
+   cd lacrei-saude-desafio
+
+2. Crie seu arquivo de configuração local:
    cp .env.example .env
-   docker compose up --build -d
-5. Teste:
+   # Ajuste DJANGO_SECRET_KEY para um valor de desenvolvimento.
+   # As credenciais locais do PostgreSQL estão no docker-compose.yml.
+
+3. Suba o ambiente local:
+   docker compose up -d --build
    docker compose ps
-   curl http://127.0.0.1:8000/health/
-6. Crie o administrador:
-   docker compose exec web python manage.py createsuperuser
-7. Execute os testes:
+
+4. Verifique a API:
+   curl -i http://127.0.0.1:8000/health/
+   # Resposta esperada: {"status":"ok"}
+
+5. Execute testes e verificações:
    docker compose exec web python manage.py test
-8. Abra README.md e siga as rotas, GitHub e deploy.
+   docker compose exec web python manage.py check
 
-Se der erro, envie o TEXTO COMPLETO do terminal.
-Nunca envie senhas reais, tokens, DATABASE_URL ou .env.
+6. Para criar um usuário local de demonstração:
+   docker compose exec web python manage.py createsuperuser
 
-IMPORTANTE: Este ZIP é uma base de implementação e deve ser validado
-no seu computador. Deploy real depende de configurar GitHub/Render.
+Documentação completa: README.md
+Swagger: http://127.0.0.1:8000/api/docs/
+Evidências de staging e produção: docs/GUIA_DA_REVISAO.md
+
+OBSERVAÇÃO: este roteiro é local. Os servidores AWS foram publicados
+via GitHub Actions, sem necessidade de criar novas instâncias para o teste.
+Não compartilhe .env, .env.aws, chaves SSH, tokens, dumps ou dados reais.

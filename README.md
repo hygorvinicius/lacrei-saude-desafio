@@ -13,7 +13,7 @@ API REST para cadastro de profissionais de saúde e gerenciamento de consultas, 
 
 Os dois ambientes executam **Django + PostgreSQL em contêineres separados**, têm bases de dados independentes e recebem tráfego HTTPS por meio do **Caddy**. Endereços baseados em `sslip.io` são adequados para demonstração; os IPs devem permanecer associados às instâncias (idealmente como IPs estáticos) enquanto esses links forem usados.
 
-**Validação histórica registrada em 5 de novembro de 2026 (não é verificação em tempo real):** pipelines de produção e staging concluíram com sucesso; o commit de produção `6520934` e o commit de staging `97735b4` foram confirmados nos respectivos servidores. O endpoint `/health/` respondeu `200 OK` nos testes apresentados. Os endereços e commits representam o estado dessa validação, não garantia de disponibilidade futura.
+**Revisão validada em 6/11/2026:** 23 testes automatizados passaram, incluindo JSON e Swagger. Staging implantou `d12e6725e285117cfbf6e14a160f03260d209368` ([execução #15](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511)); produção implantou `cf5ad971ef92aa0754450bc22e53a009384e5e01` ([execução #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256)). Os dois verificaram `/health/` localmente e por HTTPS. Esses resultados confirmam aquelas execuções, não disponibilidade permanente.
 
 ## 1. Funcionalidades
 
@@ -150,7 +150,7 @@ poetry run python manage.py test
 poetry run python manage.py check
 ```
 
-Nos testes registrados antes desta revisão, **15 testes passaram**. A revisão adiciona novos testes de JSON e Swagger que só podem ser considerados aprovados após a próxima execução do CI. Eles contemplaram autenticação, operações de profissionais e consultas, filtragem, validação de dados e cenários de erro, conforme as suítes do repositório. As execuções posteriores de GitHub Actions para as duas branches também foram aprovadas.
+Na revisão de 6/11/2026, **23 testes passaram**, incluindo oito novos testes de JSON e Swagger. O [job qualidade da execução #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256/job/128015409584) também aprovou Ruff, checagem de migrações e `manage.py check`. São testes em PostgreSQL de CI com dados fictícios.
 
 ## 5. Implantação na AWS Lightsail
 
@@ -197,7 +197,7 @@ Workflow: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Visão d
 3. **Deploy staging:** push em `develop` → GitHub Actions → SSH para `Ubuntu-2` → atualização do código e `docker compose up -d --build` → verificação de `/health/`.
 4. **Deploy produção:** push em `main` → mesmo processo na instância `Ubuntu-1`, usando o ambiente `production`.
 
-**Revisão de rastreabilidade:** os jobs de deploy passam o SHA de `${{ github.sha }}` ao servidor, fazem `git fetch` na branch, abortam se o commit esperado não for o HEAD remoto, executam `git switch --detach "$EXPECTED_SHA"`, registram `DEPLOYED_SHA` e confirmam o SHA após o checkout. Em seguida fazem build e validam `/health/` localmente e por HTTPS. O resumo de cada job aponta para a execução no GitHub Actions. Isso só comprovará o deploy após as novas execuções verdes.
+**Revisão de rastreabilidade:** os jobs de deploy passam o SHA de `${{ github.sha }}` ao servidor, fazem `git fetch` na branch, abortam se o commit esperado não for o HEAD remoto, executam `git switch --detach "$EXPECTED_SHA"`, registram `DEPLOYED_SHA` e confirmam o SHA após o checkout. Em seguida fazem build e validam `/health/` localmente e por HTTPS. O resumo de cada job aponta para a execução no GitHub Actions. Os logs das execuções #15 (staging) e #17 (produção) registraram `DEPLOYED_SHA` com os commits esperados e a verificação de saúde foi aprovada.
 
 O GitHub utiliza os ambientes `staging` e `production`, cada um com seus próprios segredos:
 
@@ -209,13 +209,13 @@ O par de chaves SSH é separado por ambiente, e a identidade SSH do host deve se
 
 **Incidente resolvido:** o primeiro deploy de staging falhou com `curl: (56) Recv failure: Connection reset by peer` porque o teste chegou durante a inicialização do Django. A verificação foi ajustada para tolerar erros transitórios e repetir as tentativas (`--retry-all-errors`, intervalo entre tentativas). A execução seguinte concluiu com sucesso.
 
-**Validações observadas:** produção — commit `6520934`; staging — commit `97735b4` (execução #5, 5/11/2026). Um job verde comprova a execução da pipeline, e o teste externo de `/health/` acrescenta a confirmação de que o serviço respondeu; nenhum desses testes isolados equivale a uma auditoria completa de segurança ou desempenho.
+**Evidências da revisão:** [staging #15](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511), [produção #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256), [PR #1](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/1) e [PR #2](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/2). A verificação `/health/` comprova resposta pontual, não auditoria de segurança ou de recuperação de desastres.
 
 ## 6.1 Respostas JSON e Swagger
 
 A API de negócio (`/api/profissionais/`, `/api/consultas/`, `/api/auth/token/`, `/health/`) usa `rest_framework.renderers.JSONRenderer` como renderizador padrão exclusivo. Isso evita que endpoints REST sirvam a interface HTML navegável do DRF. Respostas `204 No Content` não possuem corpo e continuam válidas. O Swagger (`/api/docs/`) é uma página HTML distinta oferecida pelo `drf-spectacular`; o esquema OpenAPI permanece em `/api/schema/`. Uma requisição com `Accept: text/html` para um endpoint REST pode receber `406 Not Acceptable` com erro JSON, o que é esperado com o renderizador único.
 
-Teste incluído: `api/tests/test_json_responses.py` verifica o cabeçalho `Content-Type`, os corpos JSON, erros 400/401, autenticação, `health` e a página HTML do Swagger. Esse teste ainda requer execução no ambiente do repositório para confirmar o resultado da revisão.
+Teste incluído: `api/tests/test_json_responses.py` verifica o cabeçalho `Content-Type`, os corpos JSON, erros 400/401, autenticação, `health` e a página HTML do Swagger. Os testes foram executados com sucesso na execução #17 do GitHub Actions.
 
 ## 6.2 Execução com Poetry e PostgreSQL local (alternativa ao Compose completo)
 
@@ -269,9 +269,16 @@ DATABASE_SSL_REQUIRE=0
 
 Para staging, altere os domínios e use segredos/banco próprios. `DATABASE_SSL_REQUIRE=0` nesse exemplo se refere à comunicação com o banco no Docker privado, não ao HTTPS público. Não habilite acesso público ao PostgreSQL. `DEBUG=0` exige HTTPS e chave secreta forte. Rode verificações com `sudo docker compose --env-file .env.aws -f compose.aws.yml ps` e `... logs --tail=50 web`, sem mostrar o conteúdo das variáveis.
 
-## 6.4 Evidências de CI/CD para esta revisão
+## 6.4 Evidências diretas de CI/CD — revisão de 6/11/2026
 
-As evidências devem corresponder ao **novo SHA** após o commit da revisão, não a uma execução anterior. Use os links de [execuções do GitHub Actions](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/workflows/ci-cd.yml), abra o run da branch `develop` e o da branch `main`, e registre seus URLs diretos no e-mail de resposta. Dentro dos runs, confira os jobs **qualidade**, **build**, **deploy-staging** ou **deploy-production**, o SHA no sumário e a validação de `/health/`. Para PR, o pipeline valida qualidade/build, mas não publica. Os links públicos do Swagger/health não substituem os links das execuções do CI. Caso os runs estejam privados para avaliadores, forneça acesso de leitura conforme autorizado pela organização ou artefatos/redações sem segredos.
+| Ambiente | SHA publicado | Pipeline | Testes |
+|---|---|---|---|
+| Staging (`develop`) | `d12e6725e285117cfbf6e14a160f03260d209368` | [Execução #15](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511) | [Qualidade #15](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253316511/job/128013818318) |
+| Produção (`main`) | `cf5ad971ef92aa0754450bc22e53a009384e5e01` | [Execução #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256) | [Qualidade #17](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/runs/42253783256/job/128015409584) |
+
+[PR #1](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/1) · [PR #2](https://github.com/hygorvinicius/lacrei-saude-desafio/pull/2) · [Saúde staging](https://18-227-202-242.sslip.io/health/) · [Saúde produção](https://3-133-248-90.sslip.io/health/)
+
+Os jobs de deploy da outra branch são ignorados intencionalmente. Os endpoints de saúde mostram o estado no momento da consulta.
 
 ## 7. Rollback operacional
 
@@ -351,7 +358,7 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 - [x] `/health/` e Swagger acessíveis por HTTPS em ambos os ambientes durante a validação.
 - [x] Rollback **de código** testado no staging e versão atual restaurada.
 - [x] README revisado com arquitetura, URLs, Poetry/PostgreSQL, Caddy, variáveis e limitações conhecidas.
-- [ ] Executar os novos testes JSON e registrar links diretos dos pipelines da revisão após publicar os commits.
+- [x] Executar os novos testes JSON e registrar links diretos dos pipelines da revisão (#15 e #17).
 - [x] Versionar `compose.aws.yml` sem segredos e conferir seu conteúdo nas duas instâncias.
 - [ ] Validar provisionamento completamente novo de Caddy/Docker em outra máquina (não exigido para a revisão).
 - [x] Restaurar backup de produção em banco descartável e conferir 13 tabelas.
@@ -366,6 +373,6 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 
 ---
 
-**Nota de escopo:** os novos testes e o workflow foram preparados sobre os arquivos disponíveis nesta conversa. Os resultados de CI, deploy e acessibilidade do GitHub dependem de aplicar a revisão ao repositório atual e executar o pipeline. Nenhuma credencial foi utilizada nesta preparação.
+**Nota de verificação:** a execução dos testes e os deploys da revisão foram confirmados pelos registros do GitHub Actions acima. Exemplos de configuração não substituem inspeção do servidor; nenhum segredo deve ser publicado.
 
 **Nota de escopo:** este README registra o trabalho executado e as evidências compartilhadas durante o desafio técnico. Não representa auditoria independente do código, da infraestrutura ou de conformidade com a LGPD.
