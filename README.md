@@ -287,12 +287,7 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 - [x] `/health/` e Swagger acessíveis por HTTPS em ambos os ambientes durante a validação.
 - [x] Rollback **de código** testado no staging e versão atual restaurada.
 - [x] README atualizado com arquitetura, URLs e limitações conhecidas.
-- [ ] Versionar uma configuração AWS reutilizável, sem arquivos secretos, e validar instalação nova.
-- [ ] Testar restauração do backup em banco descartável e estabelecer cópia externa.
-- [ ] Fazer revisão final de segurança e execução de `manage.py check --deploy` com configurações da AWS.
-- [ ] Confirmar que segredos, arquivos `.env*` e dumps não foram publicados.
-- [ ] Confirmar critérios de aceitação e enviar link do repositório à equipe da ONG.
-
+- [ ] 
 ## 11. Extra opcional — proposta de integração Asaas
 
 **Não implementado.** Uma integração futura poderá relacionar uma cobrança à consulta, solicitar cobrança na API do Asaas e processar webhooks com verificação de autenticidade e idempotência. Credenciais ficariam exclusivamente no backend, e não seriam armazenados dados completos de cartão. Staging utilizaria ambiente de testes isolado de produção
