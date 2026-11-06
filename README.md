@@ -295,8 +295,4 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 
 ## 11. Extra opcional — proposta de integração Asaas
 
-**Não implementado.** Uma integração futura poderá relacionar uma cobrança à consulta, solicitar cobrança na API do Asaas e processar webhooks com verificação de autenticidade e idempotência. Credenciais ficariam exclusivamente no backend, e não seriam armazenados dados completos de cartão. Staging utilizaria ambiente de testes isolado de produção.
-
----
-
-**Nota de escopo:** este README registra o trabalho executado e as evidências compartilhadas durante o desafio técnico. Não representa auditoria independente do código, da infraestrutura ou de conformidade com a LGPD.
+**Não implementado.** Uma integração futura poderá relacionar uma cobrança à consulta, solicitar cobrança na API do Asaas e processar webhooks com verificação de autenticidade e idempotência. Credenciais ficariam exclusivamente no backend, e não seriam armazenados dados completos de cartão. Staging utilizaria ambiente de testes isolado de produção
