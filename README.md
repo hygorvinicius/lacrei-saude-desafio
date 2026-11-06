@@ -13,7 +13,7 @@ API REST para cadastro de profissionais de saúde e gerenciamento de consultas, 
 
 Os dois ambientes executam **Django + PostgreSQL em contêineres separados**, têm bases de dados independentes e recebem tráfego HTTPS por meio do **Caddy**. Endereços baseados em `sslip.io` são adequados para demonstração; os IPs devem permanecer associados às instâncias (idealmente como IPs estáticos) enquanto esses links forem usados.
 
-**Situação verificada em 5 de novembro de 2026:** pipelines de produção e staging concluíram com sucesso; o commit de produção `6520934` e o commit de staging `97735b4` foram confirmados nos respectivos servidores. O endpoint `/health/` respondeu `200 OK` nos testes apresentados. Os endereços e commits representam o estado dessa validação, não garantia de disponibilidade futura.
+**Validação histórica registrada em 5 de novembro de 2026 (não é verificação em tempo real):** pipelines de produção e staging concluíram com sucesso; o commit de produção `6520934` e o commit de staging `97735b4` foram confirmados nos respectivos servidores. O endpoint `/health/` respondeu `200 OK` nos testes apresentados. Os endereços e commits representam o estado dessa validação, não garantia de disponibilidade futura.
 
 ## 1. Funcionalidades
 
@@ -150,7 +150,7 @@ poetry run python manage.py test
 poetry run python manage.py check
 ```
 
-Nos testes registrados durante o desenvolvimento, **15 testes passaram**. Eles contemplaram autenticação, operações de profissionais e consultas, filtragem, validação de dados e cenários de erro, conforme as suítes do repositório. As execuções posteriores de GitHub Actions para as duas branches também foram aprovadas.
+Nos testes registrados antes desta revisão, **15 testes passaram**. A revisão adiciona novos testes de JSON e Swagger que só podem ser considerados aprovados após a próxima execução do CI. Eles contemplaram autenticação, operações de profissionais e consultas, filtragem, validação de dados e cenários de erro, conforme as suítes do repositório. As execuções posteriores de GitHub Actions para as duas branches também foram aprovadas.
 
 ## 5. Implantação na AWS Lightsail
 
@@ -171,7 +171,7 @@ sudo docker compose --env-file .env.aws -f compose.aws.yml logs web --tail=50
 
 O serviço `web` publica apenas `127.0.0.1:8000:8000` no host. A porta `5432` do PostgreSQL não deve ser publicada no firewall do Lightsail. As portas `80/443` atendem o HTTPS, e a porta `22` deve ter acesso administrativo restrito sempre que viável.
 
-**Pendência de reprodutibilidade:** o arquivo `compose.aws.yml` foi montado diretamente nos servidores e apareceu como **não rastreado** no staging (`git status --short`). Para que terceiros possam reconstruir o ambiente AWS do zero apenas com o repositório, é necessário adicionar uma versão **sem segredos** desse arquivo (ou um template) ao Git, juntamente com as instruções de provisionamento do Caddy. Isso ainda não foi validado como instalação do zero em uma terceira máquina.
+**Situação do Compose AWS:** o arquivo `compose.aws.yml` sem segredos foi posteriormente versionado e verificado nos dois servidores. A instalação do zero em uma terceira máquina e a preparação automática do Caddy não foram testadas; as orientações manuais estão abaixo.
 
 ### Variáveis de ambiente principais
 
@@ -197,6 +197,8 @@ Workflow: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Visão d
 3. **Deploy staging:** push em `develop` → GitHub Actions → SSH para `Ubuntu-2` → atualização do código e `docker compose up -d --build` → verificação de `/health/`.
 4. **Deploy produção:** push em `main` → mesmo processo na instância `Ubuntu-1`, usando o ambiente `production`.
 
+**Revisão de rastreabilidade:** os jobs de deploy passam o SHA de `${{ github.sha }}` ao servidor, fazem `git fetch` na branch, abortam se o commit esperado não for o HEAD remoto, executam `git switch --detach "$EXPECTED_SHA"`, registram `DEPLOYED_SHA` e confirmam o SHA após o checkout. Em seguida fazem build e validam `/health/` localmente e por HTTPS. O resumo de cada job aponta para a execução no GitHub Actions. Isso só comprovará o deploy após as novas execuções verdes.
+
 O GitHub utiliza os ambientes `staging` e `production`, cada um com seus próprios segredos:
 
 - `LIGHTSAIL_HOST`
@@ -208,6 +210,68 @@ O par de chaves SSH é separado por ambiente, e a identidade SSH do host deve se
 **Incidente resolvido:** o primeiro deploy de staging falhou com `curl: (56) Recv failure: Connection reset by peer` porque o teste chegou durante a inicialização do Django. A verificação foi ajustada para tolerar erros transitórios e repetir as tentativas (`--retry-all-errors`, intervalo entre tentativas). A execução seguinte concluiu com sucesso.
 
 **Validações observadas:** produção — commit `6520934`; staging — commit `97735b4` (execução #5, 5/11/2026). Um job verde comprova a execução da pipeline, e o teste externo de `/health/` acrescenta a confirmação de que o serviço respondeu; nenhum desses testes isolados equivale a uma auditoria completa de segurança ou desempenho.
+
+## 6.1 Respostas JSON e Swagger
+
+A API de negócio (`/api/profissionais/`, `/api/consultas/`, `/api/auth/token/`, `/health/`) usa `rest_framework.renderers.JSONRenderer` como renderizador padrão exclusivo. Isso evita que endpoints REST sirvam a interface HTML navegável do DRF. Respostas `204 No Content` não possuem corpo e continuam válidas. O Swagger (`/api/docs/`) é uma página HTML distinta oferecida pelo `drf-spectacular`; o esquema OpenAPI permanece em `/api/schema/`. Uma requisição com `Accept: text/html` para um endpoint REST pode receber `406 Not Acceptable` com erro JSON, o que é esperado com o renderizador único.
+
+Teste incluído: `api/tests/test_json_responses.py` verifica o cabeçalho `Content-Type`, os corpos JSON, erros 400/401, autenticação, `health` e a página HTML do Swagger. Esse teste ainda requer execução no ambiente do repositório para confirmar o resultado da revisão.
+
+## 6.2 Execução com Poetry e PostgreSQL local (alternativa ao Compose completo)
+
+Este roteiro usa um contêiner **temporário** do PostgreSQL acessível só no computador local, sem alterar a AWS. No terminal Linux Mint, na raiz do repositório:
+
+```bash
+# Requer Python 3.12, Docker e Poetry 2.x instalados.
+poetry install --no-root
+docker run --rm -d --name lacrei-poetry-postgres \
+  -e POSTGRES_DB=lacrei_local -e POSTGRES_USER=lacrei_local \
+  -e POSTGRES_PASSWORD=senha_local_apenas_teste \
+  -p 127.0.0.1:5433:5432 postgres:16-alpine
+export DEBUG=1
+export DJANGO_SECRET_KEY=chave-local-sem-uso-em-producao
+export ALLOWED_HOSTS=localhost,127.0.0.1,testserver
+export DATABASE_URL=postgresql://lacrei_local:senha_local_apenas_teste@127.0.0.1:5433/lacrei_local
+poetry run python manage.py migrate
+poetry run python manage.py test
+poetry run python manage.py runserver 127.0.0.1:8000
+```
+
+Em outro terminal, valide `curl -i -H 'Accept: application/json' http://127.0.0.1:8000/health/`. Para encerrar o PostgreSQL de teste, use `docker stop lacrei-poetry-postgres`. Se a porta `5433` já estiver ocupada, escolha outra porta local e atualize a URL. **Nunca use senhas ou dados reais** nestes comandos.
+
+## 6.3 Preparação da AWS e proxy Caddy
+
+Cada servidor Ubuntu no Lightsail possui Docker + plugin Compose e Caddy instalados. O projeto é clonado em `/home/ubuntu/lacrei-saude-desafio`, o `compose.aws.yml` é versionado, e o `.env.aws` é criado somente no servidor, fora do Git, com modo `600`. A API é publicada em `127.0.0.1:8000:8000` e o PostgreSQL fica apenas na rede Docker (porta 5432 não deve ser aberta na AWS). O Caddy recebe as conexões públicas HTTP/HTTPS (portas 80/443) e as encaminha à porta local 8000.
+
+Exemplo de configuração Caddy para **produção** (`/etc/caddy/Caddyfile`); no staging, substitua o domínio por `18-227-202-242.sslip.io`:
+
+```caddyfile
+3-133-248-90.sslip.io {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+O domínio de demonstração deve resolver para o IP estático da instância. Após revisar o arquivo do servidor, valide com `sudo caddy validate --config /etc/caddy/Caddyfile` e use `sudo systemctl reload caddy` **somente se houver alteração planejada**. O Caddy precisa ter permissão para emitir/renovar TLS e acessar as portas 80/443. Este trecho é um exemplo operacional, não uma afirmação de que a configuração atual dos servidores foi inspecionada linha a linha.
+
+Exemplo de **nomes** de variáveis em `.env.aws` (substitua os valores em cada servidor; nunca publique o arquivo):
+
+```dotenv
+DEBUG=0
+DJANGO_SECRET_KEY=VALOR_SECRETO_UNICO_POR_AMBIENTE
+ALLOWED_HOSTS=3-133-248-90.sslip.io
+CSRF_TRUSTED_ORIGINS=https://3-133-248-90.sslip.io
+CORS_ALLOWED_ORIGINS=
+DATABASE_URL=postgresql://lacrei:VALOR_SECRETO_DO_BANCO@db:5432/lacrei
+DB_PASSWORD=VALOR_SECRETO_DO_BANCO
+DATABASE_SSL_REQUIRE=0
+```
+
+Para staging, altere os domínios e use segredos/banco próprios. `DATABASE_SSL_REQUIRE=0` nesse exemplo se refere à comunicação com o banco no Docker privado, não ao HTTPS público. Não habilite acesso público ao PostgreSQL. `DEBUG=0` exige HTTPS e chave secreta forte. Rode verificações com `sudo docker compose --env-file .env.aws -f compose.aws.yml ps` e `... logs --tail=50 web`, sem mostrar o conteúdo das variáveis.
+
+## 6.4 Evidências de CI/CD para esta revisão
+
+As evidências devem corresponder ao **novo SHA** após o commit da revisão, não a uma execução anterior. Use os links de [execuções do GitHub Actions](https://github.com/hygorvinicius/lacrei-saude-desafio/actions/workflows/ci-cd.yml), abra o run da branch `develop` e o da branch `main`, e registre seus URLs diretos no e-mail de resposta. Dentro dos runs, confira os jobs **qualidade**, **build**, **deploy-staging** ou **deploy-production**, o SHA no sumário e a validação de `/health/`. Para PR, o pipeline valida qualidade/build, mas não publica. Os links públicos do Swagger/health não substituem os links das execuções do CI. Caso os runs estejam privados para avaliadores, forneça acesso de leitura conforme autorizado pela organização ou artefatos/redações sem segredos.
 
 ## 7. Rollback operacional
 
@@ -243,11 +307,11 @@ git pull --ff-only origin develop
 sudo docker compose --env-file .env.aws -f compose.aws.yml up -d --build
 ```
 
-**Limites:** o teste executado demonstrou retorno de *commit* e reconstrução de contêiner; os dois commits usados diferiam principalmente no workflow CI/CD. Não demonstrou migração reversa de banco, recuperação de indisponibilidade complexa nem rollback automático. Um push posterior pode sobrescrever o rollback manual. Nunca use `docker compose down -v` para esse procedimento: ele pode remover volumes com dados.
+**Limites:** rollback de código não reverte automaticamente migrações ou dados do PostgreSQL. Antes de mexer em migrações, obtenha backup e planeje reversão separada. O teste executado demonstrou retorno de *commit* e reconstrução de contêiner; os dois commits usados diferiam principalmente no workflow CI/CD. Não demonstrou migração reversa de banco, recuperação de indisponibilidade complexa nem rollback automático. Um push posterior pode sobrescrever o rollback manual. Nunca use `docker compose down -v` para esse procedimento: ele pode remover volumes com dados.
 
 ## 8. Backups e recuperação
 
-Foi criado no servidor de staging um dump SQL do PostgreSQL, salvo em `~/lacrei-staging-backup.sql`, com cerca de 28 KB. Confirmou-se que o arquivo existe e não está vazio, **mas não foi executado teste de restauração**.
+Foi criado um dump SQL de staging em `~/lacrei-staging-backup.sql`. Posteriormente, em produção (`Ubuntu-1`), foi gerado `~/lacrei-production-backup.sql` (aproximadamente 28 KB) e uma **restauração de teste em contêiner PostgreSQL 16 isolado foi concluída com sucesso**, com 13 tabelas. O contêiner descartável foi removido. Isso valida o arquivo naquele teste, mas não substitui rotina de backups externos nem recuperação de desastres.
 
 Exemplo de geração de um novo backup no servidor:
 
@@ -269,8 +333,8 @@ Próximos controles recomendados: testar restauração em banco descartável, de
 | Pipeline de produção inicialmente dependente do Render | Substituído por deploy SSH no AWS Lightsail |
 | Staging retornava `curl (56)` imediatamente após deploy | Adicionadas tentativas no Health Check; pipeline passou |
 | Necessidade de manter dados entre reconstruções | Volume persistente do PostgreSQL, sem `down -v` |
-| Compose AWS criado diretamente no servidor | **Pendente** versionar template seguro e reproduzível |
-| Arquivo de backup de staging | Criado; **pendente** testar restauração e cópia externa |
+| Compose AWS criado diretamente no servidor | Arquivo `compose.aws.yml` sem segredos versionado e conferido nos dois ambientes; resta validar provisionamento novo |
+| Backup do PostgreSQL | Backup de produção restaurado em contêiner isolado (13 tabelas); cópia externa automática continua opcional/pendente |
 | Tokens do DRF | Modelo simples sem expiração nativa; planejar expiração/rotação, escopos e revogação |
 | Monitoramento e proteção de produção | Revisar alertas, logs, firewall, backups, rate limits e políticas de acesso |
 | Integração Asaas | **Proposta não implementada** (item opcional) |
@@ -286,9 +350,12 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 - [x] Deploy da branch `develop` na AWS staging validado.
 - [x] `/health/` e Swagger acessíveis por HTTPS em ambos os ambientes durante a validação.
 - [x] Rollback **de código** testado no staging e versão atual restaurada.
-- [x] README atualizado com arquitetura, URLs e limitações conhecidas.
-- [ ] Versionar uma configuração AWS reutilizável, sem arquivos secretos, e validar instalação nova.
-- [ ] Testar restauração do backup em banco descartável e estabelecer cópia externa.
+- [x] README revisado com arquitetura, URLs, Poetry/PostgreSQL, Caddy, variáveis e limitações conhecidas.
+- [ ] Executar os novos testes JSON e registrar links diretos dos pipelines da revisão após publicar os commits.
+- [x] Versionar `compose.aws.yml` sem segredos e conferir seu conteúdo nas duas instâncias.
+- [ ] Validar provisionamento completamente novo de Caddy/Docker em outra máquina (não exigido para a revisão).
+- [x] Restaurar backup de produção em banco descartável e conferir 13 tabelas.
+- [ ] Estabelecer cópia externa automática com política de retenção aprovada (melhoria operacional).
 - [ ] Fazer revisão final de segurança e execução de `manage.py check --deploy` com configurações da AWS.
 - [ ] Confirmar que segredos, arquivos `.env*` e dumps não foram publicados.
 - [ ] Confirmar critérios de aceitação e enviar link do repositório à equipe da ONG.
@@ -298,5 +365,7 @@ Não usar dados reais de pacientes ou credenciais reais nos testes e nas demonst
 **Não implementado.** Uma integração futura poderá relacionar uma cobrança à consulta, solicitar cobrança na API do Asaas e processar webhooks com verificação de autenticidade e idempotência. Credenciais ficariam exclusivamente no backend, e não seriam armazenados dados completos de cartão. Staging utilizaria ambiente de testes isolado de produção.
 
 ---
+
+**Nota de escopo:** os novos testes e o workflow foram preparados sobre os arquivos disponíveis nesta conversa. Os resultados de CI, deploy e acessibilidade do GitHub dependem de aplicar a revisão ao repositório atual e executar o pipeline. Nenhuma credencial foi utilizada nesta preparação.
 
 **Nota de escopo:** este README registra o trabalho executado e as evidências compartilhadas durante o desafio técnico. Não representa auditoria independente do código, da infraestrutura ou de conformidade com a LGPD.
